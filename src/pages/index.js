@@ -11,6 +11,14 @@ export default function Profile() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (session) {
+      document.title = `ContribConqueror - ${session.user.name}`;
+    } else {
+      document.title = "ContribConqueror";
+    }
+  }, [session]);
+
   const fetchData = async (cursor = null) => {
     if (session) {
       setLoading(true);
