@@ -1,118 +1,197 @@
-import Image from "next/image";
-import { Inter } from "next/font/google";
+import { useSession, signIn, signOut } from "next-auth/react";
+import { getGitHubClient } from "../utils/githubClient";
+import { useEffect, useState } from "react";
 
-const inter = Inter({ subsets: ["latin"] });
+export default function Profile() {
+  const { data: session } = useSession();
+  const [data, setData] = useState([]);
+  const [endCursor, setEndCursor] = useState(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [sortOption, setSortOption] = useState("stars");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [loading, setLoading] = useState(false);
 
-export default function Home() {
+  const fetchData = async (cursor = null) => {
+    if (session) {
+      setLoading(true);
+      const client = getGitHubClient(session.accessToken);
+      const query = `
+        query ($cursor: String, $states: [PullRequestState!]) {
+          viewer {
+            login
+            name
+            avatarUrl
+            pullRequests(first: 100, after: $cursor, states: $states, orderBy: {field: CREATED_AT, direction: DESC}) {
+              nodes {
+                title
+                repository {
+                  name
+                  owner {
+                    login
+                  }
+                  stargazerCount
+                }
+                url
+                createdAt
+                state
+              }
+              pageInfo {
+                endCursor
+                hasNextPage
+              }
+            }
+          }
+        }
+      `;
+      const variables = { cursor, states: statusFilter === "ALL" ? undefined : [statusFilter] };
+      const response = await client.request(query, variables);
+      const newPullRequests = response.viewer.pullRequests.nodes;
+
+      // Filter out pull requests from repositories owned by the logged-in user
+      const filteredPullRequests = newPullRequests.filter(pr => pr.repository.owner.login !== response.viewer.login);
+
+      setData((prevData) => (cursor ? [...prevData, ...filteredPullRequests] : filteredPullRequests));
+      setEndCursor(response.viewer.pullRequests.pageInfo.endCursor);
+      setHasNextPage(response.viewer.pullRequests.pageInfo.hasNextPage);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (session) {
+      fetchData();
+    }
+  }, [session, statusFilter]);
+
+  const sortData = (data) => {
+    switch (sortOption) {
+      case "stars":
+        return data.sort((a, b) => b.repository.stargazerCount - a.repository.stargazerCount);
+      case "latest":
+        return data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      case "oldest":
+        return data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      default:
+        return data;
+    }
+  };
+
+  const groupByRepository = (data) => {
+    return data.reduce((acc, pr) => {
+      const repoName = pr.repository.name;
+      if (!acc[repoName]) {
+        acc[repoName] = {
+          stargazerCount: pr.repository.stargazerCount,
+          pullRequests: []
+        };
+      }
+      acc[repoName].pullRequests.push(pr);
+      return acc;
+    }, {});
+  };
+
+  if (!session) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+        <p className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">You are not signed in</p>
+        <button
+          onClick={() => signIn("github")}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Sign in with GitHub
+        </button>
+      </div>
+    );
+  }
+
+  const sortedData = sortData(data);
+  const groupedData = groupByRepository(sortedData);
+
   return (
-    <main
-      className={`flex min-h-screen flex-col items-center justify-between p-24 ${inter.className}`}
-    >
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/pages/index.js</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
-
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-full sm:before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full sm:after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700/10 after:dark:from-sky-900 after:dark:via-[#0141ff]/40 before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
+    <div className="container mx-auto p-4 bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <h1 className="text-2xl font-bold mb-4">
+        GitHub Contributions to Open-Source Projects - {session.user.name}
+      </h1>
+      <div className="flex items-center mb-4">
+        <img
+          src={session.user.image}
+          alt="GitHub Avatar"
+          className="w-16 h-16 rounded-full mr-4"
         />
+        <button
+          onClick={() => signOut()}
+          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+        >
+          Sign out
+        </button>
       </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
+      <div className="mb-4">
+        <label htmlFor="sort" className="mr-2">Sort by:</label>
+        <select
+          id="sort"
+          value={sortOption}
+          onChange={(e) => setSortOption(e.target.value)}
+          className="px-2 py-1 border rounded text-gray-900 dark:text-gray-900"
         >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Discover and deploy boilerplate example Next.js&nbsp;projects.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50 text-balance`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
+          <option value="stars">Star Count</option>
+          <option value="latest">Latest PR</option>
+          <option value="oldest">Oldest PR</option>
+        </select>
       </div>
-    </main>
+      <div className="mb-4">
+        <label htmlFor="status" className="mr-2">Filter by Status:</label>
+        <select
+          id="status"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-2 py-1 border rounded text-gray-900 dark:text-gray-900"
+        >
+          <option value="ALL">All</option>
+          <option value="OPEN">Open</option>
+          <option value="MERGED">Merged</option>
+          <option value="CLOSED">Closed</option>
+        </select>
+      </div>
+      {loading ? (
+        <div className="flex justify-center items-center">
+          <div className="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+        </div>
+      ) : (
+        Object.keys(groupedData).length > 0 && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">GitHub Contributions</h2>
+            <ul className="space-y-4">
+              {Object.keys(groupedData).map((repoName) => (
+                <li key={repoName} className="bg-white dark:bg-gray-800 p-4 rounded shadow">
+                  <strong className="block mb-2">• {repoName} [🌟 {groupedData[repoName].stargazerCount}]</strong>
+                  <ul className="list-disc list-inside">
+                    {groupedData[repoName].pullRequests.map((pr, index) => (
+                      <li key={index} className="ml-4">
+                        <a
+                          href={pr.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 dark:text-blue-400 hover:underline"
+                        >
+                          {pr.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+            {hasNextPage && (
+              <button
+                onClick={() => fetchData(endCursor)}
+                className="mt-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Load More
+              </button>
+            )}
+          </div>
+        )
+      )}
+    </div>
   );
 }
