@@ -131,6 +131,7 @@ export default function Profile() {
           onClick={() => signOut()}
           className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
           data-umami-event="klik-button-logout"
+          data-umami-event-id={session.user.name}
         >
           Sign out
         </button>
@@ -143,6 +144,7 @@ export default function Profile() {
           onChange={(e) => setSortOption(e.target.value)}
           className="px-2 py-1 border rounded text-gray-900 dark:text-gray-900"
           data-umami-event={`klik-button-sort-by-${sortOption}`}
+          data-umami-event-id={session.user.name}
         >
           <option value="stars">Star Count</option>
           <option value="latest">Latest PR</option>
@@ -157,6 +159,7 @@ export default function Profile() {
           onChange={(e) => setStatusFilter(e.target.value)}
           className="px-2 py-1 border rounded text-gray-900 dark:text-gray-900"
           data-umami-event={`klik-button-filter-by-${statusFilter}`}
+          data-umami-event-id={session.user.name}
         >
           <option value="ALL">All</option>
           <option value="OPEN">Open</option>
